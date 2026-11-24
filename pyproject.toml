@@ -1,0 +1,34 @@
+[project]
+name = "goaly-looper-cookbook"
+dynamic = ["version"]
+description = "Looper's cookbook: training loops, recipes and data helpers written over Looper's SDK."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+# As the SDK's: it is the floor of the one package of ours this imports.
+requires-python = ">=3.12"
+# Ranges, never pins: an exact pin in a published wheel would conflict with
+# the rest of a user's environment. Each runs from the oldest version we test
+# to the next major.
+dependencies = [
+    # The SDK this tree's loops are written against, raised whenever the cookbook starts to use something newer.
+    "goaly-looper>=0.1.0b4,<1",
+    # The message formatters' and the loops' tokenizers.
+    "transformers>=5.19.0,<6",
+]
+
+[project.optional-dependencies]
+# The recipes read GSM8K and DeepCoder from the Hugging Face Hub.
+recipes = ["datasets>=4.7.0,<5"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "looper_cookbook/_version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["looper_cookbook"]
+# Tests and local notebook autosaves never ship.
+exclude = ["**/unit_tests", "**/tests", "**/.ipynb_checkpoints"]
