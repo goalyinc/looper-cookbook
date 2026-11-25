@@ -77,6 +77,16 @@ def test_a_tutorial_installs_the_trees_sdk(path: pathlib.Path) -> None:
 
 
 @every_tutorial
+def test_a_tutorial_takes_the_key_from_its_placeholder(path: pathlib.Path) -> None:
+    cells = notebooks.read(path)
+    source = "\n".join(cell.source for cell in cells if cell.kind == "code")
+    sessions = source.count("ServiceClient.Config(")
+    # The reader pastes the key once, in the settings cell, and every session sends it.
+    assert source.count("api_key=API_KEY") == sessions
+    assert notebooks.parameters(cells).get("API_KEY") == ("YOUR_API_KEY" if sessions else None)
+
+
+@every_tutorial
 def test_the_index_lists_a_tutorial(path: pathlib.Path) -> None:
     assert f"({path.name})" in (notebooks.TUTORIALS / "index.md").read_text()
 

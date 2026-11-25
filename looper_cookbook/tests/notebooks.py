@@ -202,9 +202,9 @@ def main() -> None:
         "record",
         help="run a notebook's code cells in order and save what each printed",
         description=(
-            "Runs the notebook's code cells in order, with the key in LOOPER_API_KEY, and saves "
-            "what each printed as its output. Leave out --base-url and --project for a notebook "
-            "that calls no service."
+            "Runs the notebook's code cells in order, with the key in LOOPER_API_KEY in place of "
+            "its API_KEY, and saves what each printed as its output. Leave out --base-url and "
+            "--project for a notebook that calls no service."
         ),
     )
     record_command.add_argument("path", type=pathlib.Path, help="the notebook, rewritten in place")
@@ -212,7 +212,11 @@ def main() -> None:
     record_command.add_argument("--project", help="the project, in place of its PROJECT")
     arguments = parser.parse_args()
     given = {"BASE_URL": arguments.base_url, "PROJECT": arguments.project}
-    asyncio.run(record(arguments.path, {k: v for k, v in given.items() if v is not None}))
+    replaced = {k: v for k, v in given.items() if v is not None}
+    # None has the SDK read LOOPER_API_KEY, so the saved notebook keeps its placeholder.
+    if "API_KEY" in parameters(read(arguments.path)):
+        replaced["API_KEY"] = None
+    asyncio.run(record(arguments.path, replaced))
 
 
 if __name__ == "__main__":
