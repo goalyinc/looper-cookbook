@@ -1,17 +1,27 @@
 # Sandboxes
 
-A sandbox is where commands run. It runs shell commands in a working directory of its own, until it is closed. An [environment](environments.md) runs its tools' commands in one, and a [verifier](verifiers.md) can run its checks in one.
+A sandbox is a place to run shell commands, with a working folder of its own that lasts until the sandbox is closed. Model-written code runs in one, so it can't touch the rest of your machine. An [environment](environments.md) runs its tools' commands in a sandbox, and a [verifier](verifiers.md) can run its checks in one, such as running the model's program against hidden tests.
 
-The cookbook has two sandboxes in `looper_cookbook.sandboxes`:
+You usually don't call a sandbox yourself. You put a sandbox's config in an environment's or a verifier's config, and they start and close it for you. Read this page to choose a sandbox and its settings, or to write one for another provider.
 
-| Sandbox | Where commands run | Settings |
-|---|---|---|
-| `local.LocalSandbox` | As processes of your machine, in a temporary directory | None |
-| `docker.DockerSandbox` | In one container of your machine's Docker daemon | `image`, `network`, `memory_mb`, `cpus`, `lifetime_s` |
+This page covers:
+
+- [Start a sandbox](#start-a-sandbox): run commands and write files in a sandbox.
+- [The local sandbox](#the-local-sandbox): run commands on your machine, for code you trust.
+- [The Docker sandbox](#the-docker-sandbox): run commands in a container, for code a model wrote.
+- [When a sandbox fails](#when-a-sandbox-fails): a failed command, and a sandbox that can't run commands at all.
+- [A sandbox of your own](#a-sandbox-of-your-own): run commands at another provider.
+
+The cookbook comes with two sandboxes, in `looper_cookbook.sandboxes`:
+
+| Sandbox | Where commands run | Use it for | Settings |
+|---|---|---|---|
+| `local.LocalSandbox` | As ordinary processes on your machine, in a temporary folder | Code you trust, and trying out an environment you're writing | None |
+| `docker.DockerSandbox` | In a Docker container on your machine | Code the model wrote | `image`, `network`, `memory_mb`, `cpus`, `lifetime_s` |
 
 ## Start a sandbox
 
-Build a sandbox from its config, run commands in it, and close it when you are done:
+Create a sandbox from its config, run commands in it, and close it when you're done. This one starts a Docker container from the `python:3.12-slim` image, and runs a command that prints the Python version and the working folder:
 
 ```python
 from looper_cookbook.sandboxes.docker import DockerSandbox
@@ -25,16 +35,16 @@ print(result.exit_code, repr(result.stdout))
 0 'Python 3.12.14\n/workspace\n'
 ```
 
-`run(command, *, timeout_s, stdin=None)` returns a `CommandResult`:
+`run(command, *, timeout_s, stdin=None)` runs one command and returns a `CommandResult`:
 
 | Field | What it holds |
 |---|---|
-| `exit_code` | The command's exit status, or `None` when it ran past `timeout_s` and was killed |
-| `stdout`, `stderr` | What it wrote to each stream, as text |
-| `truncated` | Whether a stream was longer than the 1 MiB a sandbox keeps of each |
-| `timed_out` | True when `exit_code` is `None` |
+| `exit_code` | The command's exit status, which is 0 if it succeeded, or `None` if it ran longer than `timeout_s` and was stopped |
+| `stdout`, `stderr` | What the command printed to its normal output and to its error output, as text |
+| `truncated` | Whether either output was longer than 1 MiB, the most a sandbox keeps of each |
+| `timed_out` | `True` when `exit_code` is `None` |
 
-A command that runs past `timeout_s` is killed, with everything it started:
+A command that runs longer than `timeout_s` is stopped, along with everything it started:
 
 ```python
 late = await sandbox.run("sleep 60", timeout_s=1)
@@ -45,7 +55,7 @@ print(late.exit_code, late.timed_out)
 None True
 ```
 
-`write_file(path, text)` writes a file under the working directory, and files stay between commands:
+`write_file(path, text)` writes a file inside the working folder. Files stay between commands, so a later command can read it:
 
 ```python
 await sandbox.write_file("notes/answer.txt", "42\n")
@@ -58,11 +68,11 @@ await sandbox.close()
 '42\n'
 ```
 
-Closing a Docker sandbox removes its container. `async with await config.build() as sandbox:` closes it for you.
+Closing a Docker sandbox removes its container. To close a sandbox for you, even if your code fails partway, use `async with await config.build() as sandbox:`.
 
 ## The local sandbox
 
-`LocalSandbox` runs each command as a process of your machine, in a temporary directory that is removed when it closes. It starts at once and needs nothing installed:
+`LocalSandbox` runs each command as an ordinary process on your machine, in a temporary folder that's deleted when the sandbox closes. It starts straight away, and needs nothing installed:
 
 ```python
 from looper_cookbook.sandboxes.local import LocalSandbox
@@ -76,32 +86,35 @@ async with await LocalSandbox.Config().build() as local:
 '42\n'
 ```
 
-- **It isolates nothing.** A command runs as you, and can read and change whatever you can. Use it for code you trust and for writing an environment. Run what a model writes in a Docker sandbox.
-- **A command gets your `PATH` and none of your other environment variables,** so an API key in them stays out of what it prints.
-- **A process left running in the background outlives it.** A Docker sandbox ends such a process with its container.
+- **It doesn't protect your machine.** A command runs as you, and can read and change anything you can. Use it for code you trust, and for trying out an environment you're writing. Run code a model wrote in a Docker sandbox.
+- **Commands get your `PATH`, and none of your other environment variables.** So an API key you've set there can't end up in what a command prints.
+- **A process left running in the background keeps running after the sandbox closes.** A Docker sandbox stops such processes when it removes its container.
 
 ## The Docker sandbox
 
-`DockerSandbox` starts one container, runs each command in it, and removes it when it closes. It drives the `docker` program, so it needs Docker installed and nothing else.
+`DockerSandbox` starts one container, runs each command in it, and removes the container when it closes. It runs the `docker` program, so it only needs Docker installed. It has these settings:
 
-- **No network.** The container has none unless you set `network=True`.
-- **Limits.** `memory_mb` and `cpus` bound what one sandbox takes from your machine. A command that passes its memory is killed.
-- **A lifetime.** The container removes itself `lifetime_s` seconds after it starts, an hour by default, so a run that crashed leaves none behind. Set it longer than your longest episode.
-- **The image** needs `sh`, `timeout`, `cat` and `mkdir`, which Debian's and Alpine's images have. Docker pulls an image your machine lacks when the first sandbox starts.
+- **`network`:** the container has no network access, unless you set `network=True`.
+- **`memory_mb` and `cpus`:** limit how much of your machine one sandbox can use. A command that goes over the memory limit is stopped.
+- **`lifetime_s`:** the container removes itself this many seconds after it starts, an hour by default. That way, a run that crashed doesn't leave containers behind. Set it longer than your longest attempt.
+- **`image`:** the Docker image to start from. It needs `sh`, `timeout`, `cat` and `mkdir`, which Debian's and Alpine's images have. If your machine doesn't have the image, Docker downloads it when the first sandbox starts.
 
 ## When a sandbox fails
 
-A command that fails is a result: read its `exit_code` and its `stderr`. A sandbox that cannot run commands at all raises `SandboxError`, because its container died or Docker is not running. Its `retryable` says whether a new sandbox may do better:
+There are two kinds of failure:
+
+- **A command that fails** is a normal result. Read its `exit_code` and its `stderr`, as you would in a terminal.
+- **A sandbox that can't run commands at all,** because its container stopped or Docker isn't running, raises a `SandboxError`. Its `retryable` says whether starting a new sandbox might work:
 
 | Failure | `retryable` |
 |---|---|
-| The container was killed, or its lifetime ended | True |
-| The image does not exist, or Docker is not running | False |
-| The sandbox is closed | False |
+| The container was stopped, or its lifetime ended | `True` |
+| The image doesn't exist, or Docker isn't running | `False` |
+| The sandbox was already closed | `False` |
 
 ## A sandbox of your own
 
-A sandbox is two methods. To run on another provider, such as a hosted sandbox service or your own cluster, subclass `Sandbox`:
+To run commands at another provider, such as a hosted sandbox service or your own cluster, subclass `Sandbox`. You write a config that starts one sandbox at your provider, and two methods: `run`, which runs one command, and `close`, which stops the sandbox:
 
 ```python
 import dataclasses
@@ -126,16 +139,18 @@ class ProviderSandbox(Sandbox):
         ...  # stop it; a second call does nothing
 ```
 
-`run` keeps four promises, which every environment relies on:
+Every environment relies on `run` to behave the same way, so yours must:
 
-- It runs the command with `sh -c`, in the sandbox's working directory, with `stdin` as its standard input.
-- At `timeout_s` it kills the command and everything the command started, and returns a result with no exit code.
-- It returns a command's own failure as a result, with its exit code.
-- It raises `SandboxError` when the sandbox itself failed, with `retryable` set when a new sandbox may do better.
+- **Run the command with `sh -c`,** in the sandbox's working folder, with `stdin` as its input.
+- **Stop the command at `timeout_s`,** along with everything it started, and return a result with no exit code.
+- **Return a failed command as a result,** with its exit code. Don't raise for it.
+- **Raise `SandboxError` when the sandbox itself fails,** with `retryable` set if a new sandbox might work.
 
-`write_file` goes through `run`, so your sandbox needs no file transfer of its own. Override it if your provider has a faster one. Every environment then runs on your sandbox: pass its config wherever these pages pass `DockerSandbox.Config`.
+You don't need to write `write_file`, because it works through `run`. Override it if your provider has a faster way to send files.
+
+Every environment and verifier can then use your sandbox. Pass its config wherever these pages pass `DockerSandbox.Config`.
 
 ## Next steps
 
-- [Environments](environments.md) run a model's tool calls in a sandbox.
+- [Environments](environments.md) run the model's tool calls in a sandbox.
 - [Verifiers](verifiers.md) can run their checks in one.
