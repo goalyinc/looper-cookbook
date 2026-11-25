@@ -10,7 +10,7 @@ The cookbook is the `looper_cookbook` package, in its own repository, [goalyinc/
 |---|---|---|
 | What it is | The clients and values every call to Looper takes | Loops, data helpers and recipes written over the SDK |
 | Use it when | You write your own loop | A loop here does what you need, or is a good start |
-| How to get it | `pip install "goaly-looper==0.1.0b4"` | A clone of `goalyinc/looper-cookbook`, until it is on PyPI |
+| How to get it | `pip install "goaly-looper==0.1.0b5"` | A clone of `goalyinc/looper-cookbook`, until it is on PyPI |
 
 Everything here imports the SDK alone, plus `transformers` to tokenize on your machine. The loops make no call the SDK lacks, so whatever a loop does, your own code can do too.
 
